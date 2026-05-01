@@ -89,10 +89,10 @@ export def sync_bucket_local [
   # ---- 2. Verify checksums of existing files ------------------------------
   if $verbose { print "==> Listing remote objects for verification..." }
   let remote = (
-    paginate_os_objects $bucket_name
+    (paginate_os_objects $bucket_name
       --profile $profile
       --region $region
-      --namespace-name $namespace_name
+      --namespace-name $namespace_name)
   )
   # If you want only a sub-prefix verified:
   let remote = if ($prefix | is-not-empty) {
@@ -133,11 +133,11 @@ export def sync_bucket_local [
   for m in $mismatches {
     let path = ($local_dir | path join $m.name)
     mkdir ($path | path dirname)
-    oci os object get
+    (oci os object get
       --bucket-name $bucket_name
       --name $m.name
       --file $path
-      ...$extra
+      ...$extra)
   }
 
   if $verbose { print "==> Re-download complete." }
