@@ -3,7 +3,7 @@ export def --env prepend_to_path [dir: path] {
     if not ($expanded | path exists) {
         error make { msg: $"directory does not exist: ($expanded)" }
     }
-    let added = ($env | get -i USER_PATH_ADDITIONS | default [])
+    let added = ($env | get -o USER_PATH_ADDITIONS | default [])
     $env.USER_PATH_ADDITIONS = ($added | append $expanded | uniq)
     $env.PATH = ($env.PATH | prepend $expanded | uniq)
 }
