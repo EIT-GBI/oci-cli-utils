@@ -127,7 +127,7 @@ export def sync_bucket_local [
     return
   }
 
-  print $"==> ($mismatches | length) file(s) failed verification; re-downloading:"
+  print $"==> ($mismatches | length) file\(s\) failed verification; re-downloading:"
   $mismatches | print
 
   for m in $mismatches {
