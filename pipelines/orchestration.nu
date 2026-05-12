@@ -21,3 +21,4 @@ export def send_to_workers [
   $in | shuffle
       | each { |row| $row | to msgpack }
       | ^producer $host --msgpack
+}
