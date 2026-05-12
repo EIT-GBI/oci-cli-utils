@@ -18,7 +18,9 @@ export def start_worker_monitor [
 export def send_to_workers [
   --host="127.0.0.1:7000"
 ] {
-  $in | shuffle
-      | each { |row| $row | to msgpack }
+# $in | shuffle
+#     | each { |row| $row | to msgpack }
+#     | ^producer $host --msgpack
+  $in | to msgpack
       | ^producer $host --msgpack
 }
