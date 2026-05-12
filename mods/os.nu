@@ -12,41 +12,46 @@ export def paginate_os_objects [
   if ($profile | is-not-empty)        { $extra = ($extra | append ["--profile" $profile]) }
   if ($region | is-not-empty)         { $extra = ($extra | append ["--region" $region]) }
   if ($namespace_name | is-not-empty) { $extra = ($extra | append ["--namespace-name" $namespace_name]) }
+  let extra = $extra  # make immutable
 
-  mut pg = ""
-  mut pn = 1
-  mut os = []
-  loop {
-    if $verbose {
-      print -n $"Working on ($limit)-element page number: ($pn)\r"
-    }
-    let src = (
-      oci os object list --bucket-name $bucket_name --start $pg --limit $limit ...$extra
-      | from json
-    )
+  generate { |state = {pg: "", pn: 1, buf: [], done: false}|
+    # Drain the buffer first
+    if ($state.buf | is-not-empty) {
 
-    if $src has data {
-      $os = ($os | append $src.data)
-    } else {
-      make error {
-        msg: "Unexpected output from 'os object list': output has no field called 'data'"
+      # peel the first element off the page
+
+      return {
+        out: ($state.buf | first),
+        next: ($state | update buf ($state.buf | skip 1))
       }
-    }
 
-    if $src has next-start-with {
-      $pg = $src.next-start-with
-    } else {
+    } else if not $state.done {
+
+      # Get the next page, and peel the first element
+
       if $verbose {
-        print ""
-        print "done!"
+        print -n $"Working on ($limit)-element page number: ($state.pn)\r"
       }
-      break
+
+      let src = (
+        oci os object list --bucket-name $bucket_name --start $state.pg --limit $limit ...$extra
+        | from json
+      )
+
+      let data = ($src.data | default [])
+      let next_pg = ($src | get -o next-start-with | default "")
+
+      return {
+        out: ($data | first),
+        next: {
+          pg: $next_pg,
+          pn: ($state.pn + 1),
+          buf: ($data | skip 1),
+          done: (not ($src has next-start-with))
+        }
+      }
     }
-
-    $pn = $pn + 1
   }
-
-  return $os
 }
 
 # Mirror an OCI Object Storage bucket to a local directory. Re-running the
