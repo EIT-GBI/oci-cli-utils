@@ -10,7 +10,7 @@ export def start_orchestrator [
 export def start_worker_monitor [
   --host="127.0.0.1:7010"
 ] {
-  let responses = ^consumer $host --raw
+  ^consumer $host --raw
   | from msgpack --objects
   | flatten
 }
