@@ -13,7 +13,6 @@ export def start_worker_monitor [
   let responses = ^consumer $host --raw
   | from msgpack --objects
   | flatten
-  return $responses
 }
 
 export def send_to_workers [
