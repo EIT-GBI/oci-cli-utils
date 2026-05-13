@@ -8,8 +8,8 @@ const TAGS = [in-pipe out-pipe]
 def main [
   --refresh: int = 60
   --queue: int   = 1024
-  --host_in: string  = 127.0.0.1:7000
-  --host_out: string = 127.0.0.1:7010
+  --host_in: string  = "127.0.0.1:7000"
+  --host_out: string = "127.0.0.1:7010"
 ] {
   spawn $TAGS.0 {
     start_orchestrator --refresh $refresh --host $host_in --queue $queue o+e>| lines
