@@ -1,39 +1,46 @@
-export def start_backup_worker [
-  src_name,
-  dst_name,
+export def --wrapped start_backup_worker [
   --host_consumer="127.0.0.1:7000",
-  --host_producer="127.0.0.1:7010"
+  --host_producer="127.0.0.1:7010",
+  ...oci_copy_args
 ] {
   ^consumer $host_consumer --raw
   | from msgpack --objects
   | each { |payload|
-      print $"Copying: '($payload.name)'"
-      (oci os object copy
-        --bucket-name $src_name
-        --source-object-name $payload.name
-        --source-object-if-match-e-tag $payload.etag
-        --destination-bucket $dst_name
-      | from json)
+    let result = (oci os object copy
+      --source-object-name $payload.name
+      --source-object-if-match-e-tag $payload.etag
+      ...$oci_copy_args
+    | complete)
 
-      {type: 1, name: $payload.name} | to msgpack
-                                     | ^producer $host_producer --msgpack
+    let report = if $result.exit_code == 0 {
+      {status: "ok", stdout: ($result.stdout | from json)}
+    } else {
+      {
+        status: "error",
+        code: $result.exit_code,
+        stdout: $result.stdout,
+        stderr: $result.stderr
+      }
+    }
+
+    {name: $payload.name, report: $report} | to msgpack
+                                           | ^producer $host_producer --msgpack
   }
 }
 
-export def start_backup_swarm [
-  src_name,
-  dst_name,
+export def --wrapped start_backup_swarm [
   num_workers
   --host_consumer="127.0.0.1:7000",
   --host_producer="127.0.0.1:7010",
-  --log_dir="/tmp"
+  --log_dir="/tmp",
+  ...oci_copy_args
 ] {
   let worker_ids = 1..$num_workers | each {|_|
     job spawn {
-      (start_backup_worker $src_name $dst_name 
+      (start_backup_worker
         --host_consumer $host_consumer
         --host_producer $host_producer
-        out+err> ($log_dir | path join $"worker-(random uuid).log"))
+        ...$oci_copy_args)
     }
   }
 }
