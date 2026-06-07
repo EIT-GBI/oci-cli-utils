@@ -39,6 +39,46 @@ export def start_pipeline [
   ^healthcheck $host_out
 }
 
+export def start_workflow_pipelines [
+  --host_work: string  = "127.0.0.1:9101"
+  --host_comp: string  = "127.0.0.1:9102"
+  --host_objs: string  = "127.0.0.1:9103"
+  --queue: int         = 1024
+  --refresh: int       = 1
+  --tag_suffix: string = "pipe"
+] {
+
+  let TAGS = [$"work-($tag_suffix)" $"comp-($tag_suffix)" $"objs-($tag_suffix)"]
+
+  spawn $TAGS.0 {
+    (start_orchestrator
+      --refresh $refresh
+      --host    $host_work
+      --queue   $queue
+    ) o+e>| lines | each {|x| print $"[work] ($x)"}
+  }
+
+  spawn $TAGS.1 {
+    (start_orchestrator
+      --refresh $refresh
+      --host    $host_comp
+      --queue   $queue
+    ) o+e>| lines | each {|x| print $"[comp] ($x)"}
+  }
+
+  spawn $TAGS.2 {
+    (start_orchestrator
+      --refresh $refresh
+      --host    $host_objs
+      --queue   $queue
+    ) o+e>| lines | each {|x| print $"[objs] ($x)"}
+  }
+
+  ^healthcheck $host_work
+  ^healthcheck $host_comp
+  ^healthcheck $host_objs
+}
+
 export def stop_orchestrator [
     --host = "127.0.0.1:7000"
     --hard
