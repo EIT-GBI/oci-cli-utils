@@ -57,12 +57,14 @@ Code layout
   apply()       the only interpreter of the Decision algebra; all
                 control-plane I/O happens there.
   run_*         stateless wiring: pipes in, frames through, exit code out.
+  bus           process supervision for the orchestrators — spawn,
+                health-gate, babysit, tear down on crash or signal.
 
 Effect convention (the house rule)
   A side effect is legitimate only if (a) it is the function's stated job —
-  named I/O at the edge: run_*, push, log, *_pipes, finish — or (b) the
-  docstring carries a "Side effects:" line saying what the effect buys.
-  Anything else is a bug.
+  named I/O at the edge, e.g. run_*, push, log, *_pipes, finish,
+  stop_orchestrators — or (b) the docstring carries a "Side effects:" line
+  saying what the effect buys. Anything else is a bug.
 
 Requires Python ≥ 3.10 (dataclass slots, structural pattern matching).
 """
@@ -73,6 +75,7 @@ import os
 import sys
 import enum
 import time
+import signal
 import socket
 import argparse
 import threading
@@ -456,7 +459,8 @@ class TaskLedger:
 
     def _register(self, prefix: str, depth: int, now: float) -> Send:
         """
-        Create, count, and stamp a brand-new task; snapshot it as a Send."""
+        Create, count, and stamp a brand-new task; snapshot it as a Send.
+        """
         task = Task(prefix=prefix, depth=depth,
                     mode=mode_for_depth(depth, self._max_depth))
         self._tasks[prefix] = task
@@ -886,55 +890,156 @@ def run_collect(objects_addr: str, wait: float, output: str | None) -> int:
     return 0
 
 
-def run_bus(pipes: Pipes, logs: Path):
-    """
-    Start orchrstrators for all the relevant pipes.
+# ---------------------------------------------------------------------------
+# bus — spawn and supervise the pipe orchestrators
 
-    This collection of orchestrators is called the "bus" of this workflow.
+def stop_orchestrators(procs: dict[str, subprocess.Popen[bytes]],
+                       grace: float = 10.0) -> None:
     """
-    # ensure that log dir exists
+    SIGTERM every still-running orchestrator, then SIGKILL the stragglers.
+
+    Idempotent and best-effort — already-exited children are skipped — so it
+    is safe to call from both the supervisor and the teardown path.
+    """
+    for p in procs.values():
+        if p.poll() is None:
+            p.terminate()
+
+    deadline = time.monotonic() + grace
+    for name, p in procs.items():
+        try:
+            p.wait(timeout=max(deadline - time.monotonic(), 0.1))
+        except subprocess.TimeoutExpired:
+            log(f"[bus] {name} ignored SIGTERM after {grace:g}s — killing")
+            p.kill()
+            p.wait()
+
+
+def bus_healthy(procs: dict[str, subprocess.Popen[bytes]],
+                addrs: dict[str, str], timeout: float) -> bool:
+    """
+    Gate on every orchestrator's healthcheck within a shared `timeout`
+    budget.
+
+    Interleaves the health probe with a liveness check, so a child that
+    dies immediately (port already bound, bad flags) fails the gate in
+    about a second instead of burning the whole budget. Returns False on
+    death or timeout; the caller owns the teardown.
+    """
+    deadline = time.monotonic() + timeout
+    for name, addr in addrs.items():
+        while True:
+            rc = procs[name].poll()
+            if rc is not None:
+                log(f"[bus] {name} died before its healthcheck (rc={rc}) — "
+                    f"see its log")
+                return False
+
+            budget = deadline - time.monotonic()
+            if budget <= 0:
+                log(f"[bus] {name} not healthy after {timeout:g}s")
+                return False
+
+            try:
+                qpipe.wait_until_healthy(addr, timeout=min(1.0, budget))
+                break
+            except qpipe.QpipeError:    # not up yet — re-check liveness
+                continue
+    return True
+
+
+def supervise_bus(procs: dict[str, subprocess.Popen[bytes]]) -> int:
+    """
+    Wait for every orchestrator to exit; the first NONZERO exit tears the
+    survivors down.
+
+    Clean (rc == 0) exits are allowed to stagger — the drain cascade shuts
+    the pipes down at different times, and objects must be free to outlive
+    work/completions for slow collectors (see the module docstring).
+    Polling rather than os.wait(): three children, half-second resolution,
+    portable, readable.
+    """
+    rcs: dict[str, int] = {}
+    while len(rcs) < len(procs):
+        time.sleep(0.5)
+        for name, p in procs.items():
+            if name in rcs:
+                continue
+            rc = p.poll()
+            if rc is None:
+                continue
+            rcs[name] = rc
+            log(f"[bus] {name} exited rc={rc}")
+            if rc != 0:
+                log("[bus] nonzero exit — half a bus is worse than none, "
+                    "stopping the rest")
+                stop_orchestrators(procs)
+                return 1
+    return 0
+
+
+def run_bus(pipes: Pipes, logs: Path, rust_log: str, orchestrator: str) -> int:
+    """
+    Bus entry point: spawn one qpipe orchestrator per pipe, gate on their
+    healthchecks (--wait budget), then supervise until they exit.
+
+    Children log to <logs>/<name>.log, append mode, stderr merged into
+    stdout. Assumes orchestrator processes exit once their pipe is drained
+    or shut down; if they are run-forever servers, the bus ends only via
+    signal.
+
+    Side effects beyond the stated job: installs a SIGTERM handler that
+    converts the signal into SystemExit — buying a teardown path under
+    systemd/Slurm/k8s stop signals, which otherwise reach only this
+    supervisor and orphan the children on their ports.
+
+    Exit codes: 0 all clean, 1 spawn/health/crash failure, 130 interrupted;
+    SIGTERM propagates as 143 after teardown.
+    """
     logs.mkdir(parents=True, exist_ok=True)
-    # ensure that RUST_LOG=debug is set in environment
-    my_env = os.environ.copy()
-    my_env["RUST_LOG"] = "debug"
-    # start orchestrator bus
-    with (
-        open(logs/"work.log", "a") as f_work,
-        open(logs/"completions.log", "a") as f_completions,
-        open(logs/"objects.log", "a") as f_objects
-    ):
-        p_work = subprocess.Popen(
-            ["orchestrator", pipes.work],
-            env=my_env,
-            stdout=f_work,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1   # Line buffered
-        )
 
-        p_completions = subprocess.Popen(
-            ["orchestrator", pipes.completions],
-            env=my_env,
-            stdout=f_completions,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1   # Line buffered
-        )
+    env = os.environ.copy()
+    env["RUST_LOG"] = rust_log
 
-        p_objects = subprocess.Popen(
-            ["orchestrator", pipes.objects],
-            env=my_env,
-            stdout=f_objects,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1   # Line buffered
-        )
+    def on_sigterm(signum: int, frame: Any) -> None:
+        """Turn SIGTERM into an exception so `finally` runs the teardown."""
+        log("[bus] SIGTERM — shutting the bus down")
+        sys.exit(143)
 
-        rc_work        = p_work.wait()
-        rc_completions = p_completions.wait()
-        rc_objects     = p_objects.wait()
+    signal.signal(signal.SIGTERM, on_sigterm)
 
-    return rc_work, rc_completions, rc_objects
+    addrs = {"work": pipes.work,
+             "completions": pipes.completions,
+             "objects": pipes.objects}
+    procs: dict[str, subprocess.Popen[bytes]] = {}
+    logfiles: list[Any] = []
+
+    try:
+        for name, addr in addrs.items():
+            f = open(logs / f"{name}.log", "ab")
+            logfiles.append(f)
+            # No text=/bufsize=: stdout is a real file, so the child writes
+            # straight to the fd and buffers however its runtime pleases.
+            procs[name] = subprocess.Popen([orchestrator, addr], env=env,
+                                           stdout=f, stderr=subprocess.STDOUT)
+            log(f"[bus] {name} pid={procs[name].pid} on {addr} → {f.name}")
+
+        if not bus_healthy(procs, addrs, timeout=pipes.wait):
+            return 1
+
+        log("[bus] all orchestrators healthy — supervising")
+        return supervise_bus(procs)
+
+    except FileNotFoundError as e:
+        log(f"[bus] cannot spawn {orchestrator!r}: {e}")
+        return 1
+    except KeyboardInterrupt:
+        log("[bus] interrupted — stopping orchestrators")
+        return 130
+    finally:
+        stop_orchestrators(procs)
+        for f in logfiles:
+            f.close()
 
 
 # ---------------------------------------------------------------------------
@@ -963,7 +1068,7 @@ def add_auth_args(p: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Define the CLI for all three roles.
+    """Define the CLI — one subparser per role.
 
     Flag names are stable interface; the from_args constructors are their
     only readers.
@@ -1009,8 +1114,18 @@ def build_parser() -> argparse.ArgumentParser:
                    help="file (default stdout, '-' works too)")
     add_pipe_args(g, "objects")
 
-    b = sub.add_parser("bus", help="message-exchange fabric")
-    b.add_argument("--logdir", default=Path.cwd() / "bus_logs")
+    b = sub.add_parser("bus", help="spawn + supervise the pipe orchestrators "
+                                   "(the message-exchange fabric)")
+    b.add_argument("--logdir", type=Path, default=Path.cwd() / "bus_logs",
+                   metavar="DIR",
+                   help="directory for per-orchestrator logs "
+                        "(default ./bus_logs)")
+    b.add_argument("--rust-log", default="debug",
+                   help="RUST_LOG for the spawned orchestrators "
+                        "(default debug)")
+    b.add_argument("--orchestrator", default="orchestrator", metavar="BIN",
+                   help="orchestrator binary to spawn "
+                        "(default: 'orchestrator' from PATH)")
     add_pipe_args(b, "work", "completions", "objects")
 
     return ap
@@ -1041,7 +1156,8 @@ def main(argv: list[str] | None = None) -> int:
                            output=args.output)
 
     if args.role == "bus":
-        return run_bus(pipes=Pipes.from_args(args), logs=args.logdir)
+        return run_bus(pipes=Pipes.from_args(args), logs=args.logdir,
+                       rust_log=args.rust_log, orchestrator=args.orchestrator)
 
     raise AssertionError(f"unhandled role {args.role!r}")  # unreachable
 
