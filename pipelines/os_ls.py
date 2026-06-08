@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 """
-oci_pipe_ls.py — enumerate an OCI bucket in parallel over qpipe.
+os_ls.py — enumerate an OCI bucket in parallel over qpipe.
 
 Topology (acyclic by construction — workers never produce to the pipe they
 consume; the coordinator is the sole producer of work):
@@ -1116,7 +1116,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     b = sub.add_parser("bus", help="spawn + supervise the pipe orchestrators "
                                    "(the message-exchange fabric)")
-    b.add_argument("--logdir", type=Path, default=Path.cwd() / "bus_logs",
+    b.add_argument("--logdir", type=Path, default=Path.cwd() / "os-ls-logs",
                    metavar="DIR",
                    help="directory for per-orchestrator logs "
                         "(default ./bus_logs)")

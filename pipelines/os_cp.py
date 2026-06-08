@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 """
-oci_pipe_cp.py — server-side copy of OCI objects, in parallel over qpipe.
+os_cp.py — server-side copy of OCI objects, in parallel over qpipe.
 
 Topology (acyclic; the coordinator is the sole producer of work):
 
@@ -1182,7 +1182,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     b = sub.add_parser("bus", help="spawn + supervise the pipe orchestrators "
                                    "(the message-exchange fabric)")
-    b.add_argument("--logdir", type=Path, default=Path.cwd() / "bus_logs",
+    b.add_argument("--logdir", type=Path, default=Path.cwd() / "os-cp-logs",
                    metavar="DIR",
                    help="directory for per-orchestrator logs "
                         "(default ./bus_logs)")
