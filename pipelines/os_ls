@@ -2,10 +2,11 @@
 set -euo pipefail
 
 # ---- optional args: set defaults up front ----
-logdir="$(pwd)/ls-logs"
 profile="DEFAULT"
 threads=8
 outfile="-"
+namespace=""
+region=""
 
 # ---- mandatory args: leave unset (empty) ----
 name=""
@@ -17,11 +18,14 @@ Usage: ${0##*/} --name=VALUE [options]
 Required:
   --name=VALUE        bucket to ls
 
+Required if 'namespace' present
+  --region=VALUE      OCI region (ignored without namespace)
+
 Optional:
-  --logdir=VALUE      log directory        (default: ${logdir})
   --profile=VALUE     OCI profile to use   (default: ${profile})
   --threads=VALUE     number of threads    (default: ${threads})
   --outfile=VALUE     output file to send results to (default: stdout)
+  --namespace=VALUE   namespace            (defaults to default OCI namespace)
   -h, --help          show this help
 EOF
   exit 1
@@ -29,12 +33,14 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --name=*)      name="${1#*=}"     ;;
-    --outfile=*)   outfile="${1#*=}"  ;;
-    --profile=*)   profile="${1#*=}"  ;;
-    --threads=*)   threads="${1#*=}"  ;;
-    --logdir=*)    logdir="${1#*=}"   ;;
-    -h|--help)     usage              ;;
+    --name=*)      name="${1#*=}"      ;;
+    --outfile=*)   outfile="${1#*=}"   ;;
+    --profile=*)   profile="${1#*=}"   ;;
+    --threads=*)   threads="${1#*=}"   ;;
+    --namespace=*) namespace="${1#*=}" ;;
+    --region=*)    region="${1#*=}"    ;;
+    --threads=*)   threads="${1#*=}"   ;;
+    -h|--help)     usage               ;;
     --*)           echo "Unknown option: $1" >&2; usage ;;
     *)             echo "Unexpected argument: $1" >&2; usage ;;
   esac
@@ -45,7 +51,14 @@ done
 [[ -n "$name" ]] || { echo "Error: --name is required" >&2; usage; }
 
 # ---- oneshot run ----
-uv run python os_ls.py bus --logdir=$logdir &
+uv run python os_ls.py bus &
 uv run python os_ls.py worker --profile $profile --threads $threads &
 uv run python os_ls.py collect -o $outfile &
-uv run python os_ls.py coordinator $name --profile $profile
+if [[ -n "$namespace" ]]
+then
+    uv run python os_ls.py coordinator $name \
+        --profile $profile --namespace $namespace --region $region
+else
+    uv run python os_ls.py coordinator $name \
+        --profile $profile
+fi

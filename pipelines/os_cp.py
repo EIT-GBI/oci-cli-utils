@@ -1095,7 +1095,7 @@ def run_bus(pipes: Pipes, logs: Path, rust_log: str, orchestrator: str) -> int:
             # No text=/bufsize=: stdout is a real file, so the child writes
             # straight to the fd and buffers however its runtime pleases.
             procs[name] = subprocess.Popen([orchestrator, addr], env=env,
-                                           stdout=f, stderr=subprocess.STDOUT)
+                                           stdout=f, stderr=subprocess.STDERR)
             log(f"[bus] {name} pid={procs[name].pid} on {addr} → {f.name}")
 
         if not bus_healthy(procs, addrs, timeout=pipes.wait):
