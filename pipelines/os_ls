@@ -5,10 +5,10 @@ set -euo pipefail
 logdir="$(pwd)/ls-logs"
 profile="DEFAULT"
 threads=8
+outfile="-"
 
 # ---- mandatory args: leave unset (empty) ----
 name=""
-outfile=""
 
 usage() {
   cat >&2 <<EOF
@@ -16,12 +16,12 @@ Usage: ${0##*/} --name=VALUE [options]
 
 Required:
   --name=VALUE        bucket to ls
-  --outfile=VALUE     output file to send results to
 
 Optional:
   --logdir=VALUE      log directory        (default: ${logdir})
   --profile=VALUE     OCI profile to use   (default: ${profile})
   --threads=VALUE     number of threads    (default: ${threads})
+  --outfile=VALUE     output file to send results to (default: stdout)
   -h, --help          show this help
 EOF
   exit 1
@@ -43,7 +43,6 @@ done
 
 # ---- validate mandatory args ----
 [[ -n "$name" ]] || { echo "Error: --name is required" >&2; usage; }
-[[ -n "$outfile" ]] || { echo "Error: --outfile is required" >&2; usage; }
 
 # ---- oneshot run ----
 uv run python os_ls.py bus --logdir=$logdir &

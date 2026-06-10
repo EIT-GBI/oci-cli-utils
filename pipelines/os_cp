@@ -5,9 +5,7 @@ set -euo pipefail
 logdir="$(pwd)/cp-logs"
 profile="DEFAULT"
 threads=8
-
-# ---- mandatory args: leave unset (empty) ----
-outfile=""
+outfile="-"
 
 usage() {
   cat >&2 <<EOF
@@ -20,6 +18,7 @@ Optional:
   --logdir=VALUE      log directory        (default: ${logdir})
   --profile=VALUE     OCI profile to use   (default: ${profile})
   --threads=VALUE     number of threads    (default: ${threads})
+  --outfile=VALUE     output file to send results to (default: stdout)
   -h, --help          show this help
 EOF
   exit 1
@@ -38,9 +37,6 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
-
-# ---- validate mandatory args ----
-[[ -n "$outfile" ]] || { echo "Error: --outfile is required" >&2; usage; }
 
 # ---- oneshot run ----
 uv run python os_cp.py bus --logdir=$logdir &
