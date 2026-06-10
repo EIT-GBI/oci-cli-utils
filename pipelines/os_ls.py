@@ -91,7 +91,7 @@ import qpipe
 DELIMITER = "/"            # the only delimiter OCI Object Storage supports
 PAGE_LIMIT = 1000          # ListObjects hard cap per call
 CHILD_CHUNK = 5_000        # children per frame — stays far below the frame cap
-DEFAULT_FIELDS = "name,size,etag,timeCreated"
+DEFAULT_FIELDS = "name,size,etag,md5,timeCreated"
 
 Mode = Literal["split", "stream"]
 
@@ -1052,19 +1052,34 @@ def add_pipe_args(p: argparse.ArgumentParser, *names: str) -> None:
     """
     for n in names:
         default = getattr(DEFAULT_PIPES, n)
-        p.add_argument(f"--{n}", default=default, metavar="HOST:PORT",
-                       help=f"{n} pipe orchestrator (default {default})")
-    p.add_argument("--wait", type=float, default=DEFAULT_PIPES.wait,
-                   help=f"seconds to wait for pipes to come up "
-                            f"(default {DEFAULT_PIPES.wait:g})")
+        p.add_argument(
+            f"--{n}",
+            default=default,
+            metavar="HOST:PORT",
+            help=f"{n} pipe orchestrator (default {default})"
+        )
+    p.add_argument(
+        "--wait",
+        type=float,
+        default=DEFAULT_PIPES.wait,
+        help=f"seconds to wait for pipes to come up "
+             f"(default {DEFAULT_PIPES.wait:g})"
+    )
 
 
 def add_auth_args(p: argparse.ArgumentParser) -> None:
     """Register --oci-config / --profile (the CLI edge for OciAuth)."""
-    p.add_argument("--oci-config", default="~/.oci/config", metavar="PATH",
-                   help="OCI config file (default ~/.oci/config)")
-    p.add_argument("--profile", default="DEFAULT",
-                   help="profile within the config file (default DEFAULT)")
+    p.add_argument(
+        "--oci-config",
+        default="~/.oci/config",
+        metavar="PATH",
+        help="OCI config file (default ~/.oci/config)"
+    )
+    p.add_argument(
+        "--profile",
+        default="DEFAULT",
+        help="profile within the config file (default DEFAULT)"
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1080,52 +1095,88 @@ def build_parser() -> argparse.ArgumentParser:
 
     c = sub.add_parser("coordinator", help="seed, track, terminate")
     c.add_argument("bucket")
-    c.add_argument("--prefix", default="",
-                   help="seed subtree (''=whole bucket; end with '/' for a "
-                        "directory)")
+    c.add_argument(
+        "--prefix",
+        default="",
+        help="seed subtree (''=whole bucket; end with '/' for a directory)"
+    )
     c.add_argument("--namespace", help="skip the namespace lookup")
     c.add_argument("--region", help="override the profile's region for workers")
-    c.add_argument("--max-depth", type=int, default=None,
-                   help="below this depth dispatch 'stream' tasks "
-                        "(full-subtree scans) instead of splitting further")
-    c.add_argument("--task-timeout", type=float, default=300.0,
-                   help="seconds before a task is re-dispatched (default 300)")
+    c.add_argument(
+        "--max-depth",
+        type=int,
+        default=None,
+        help="below this depth dispatch 'stream' tasks "
+             "(full-subtree scans) instead of splitting further"
+    )
+    c.add_argument(
+        "--task-timeout",
+        type=float,
+        default=300.0,
+        help="seconds before a task is re-dispatched (default 300)"
+    )
     c.add_argument("--max-attempts", type=int, default=3)
     c.add_argument("--watchdog-tick", type=float, default=5.0)
     c.add_argument("--report-every", type=float, default=5.0)
-    c.add_argument("--hammer", type=float, default=60.0,
-                   help="seconds after drain before escalating to shutdown")
+    c.add_argument(
+        "--hammer",
+        type=float,
+        default=60.0,
+        help="seconds after drain before escalating to shutdown"
+    )
     add_pipe_args(c, "work", "completions", "objects")
     add_auth_args(c)
 
-    w = sub.add_parser("worker",
-                       help="consume prefixes, emit objects+completions")
-    w.add_argument("--fields", default=DEFAULT_FIELDS,
-                   help="ListObjects fields: name,size,etag,md5,timeCreated,"
-                        "timeModified,storageTier,archivalState "
-                        f"(default {DEFAULT_FIELDS})")
-    w.add_argument("--threads", type=int, default=4,
-                   help="independent worker loops in this process (default 4)")
+    w = sub.add_parser(
+        "worker",
+        help="consume prefixes, emit objects+completions"
+    )
+    w.add_argument(
+        "--fields",
+        default=DEFAULT_FIELDS,
+        help="ListObjects fields: name,size,etag,md5,timeCreated,"
+             "timeModified,storageTier,archivalState "
+             f"(default {DEFAULT_FIELDS})"
+    )
+    w.add_argument(
+        "--threads",
+        type=int,
+        default=4,
+        help="independent worker loops in this process (default 4)"
+    )
     add_pipe_args(w, "work", "completions", "objects")
     add_auth_args(w)
 
     g = sub.add_parser("collect", help="drain the objects pipe to JSONL")
-    g.add_argument("--output", "-o",
-                   help="file (default stdout, '-' works too)")
+    g.add_argument(
+        "--output", "-o",
+        help="file (default stdout, '-' works too)"
+    )
     add_pipe_args(g, "objects")
 
-    b = sub.add_parser("bus", help="spawn + supervise the pipe orchestrators "
-                                   "(the message-exchange fabric)")
-    b.add_argument("--logdir", type=Path, default=Path.cwd() / "os-ls-logs",
-                   metavar="DIR",
-                   help="directory for per-orchestrator logs "
-                        "(default ./bus_logs)")
-    b.add_argument("--rust-log", default="debug",
-                   help="RUST_LOG for the spawned orchestrators "
-                        "(default debug)")
-    b.add_argument("--orchestrator", default="orchestrator", metavar="BIN",
-                   help="orchestrator binary to spawn "
-                        "(default: 'orchestrator' from PATH)")
+    b = sub.add_parser(
+            "bus",
+            help="spawn + supervise the pipe orchestrators "
+                 "(the message-exchange fabric)"
+    )
+    b.add_argument(
+        "--logdir",
+        type=Path,
+        default=Path.cwd() / "os-ls-logs",
+        metavar="DIR",
+        help="directory for per-orchestrator logs (default ./bus_logs)"
+    )
+    b.add_argument(
+        "--rust-log",
+        default="debug",
+        help="RUST_LOG for the spawned orchestrators (default debug)"
+    )
+    b.add_argument(
+        "--orchestrator",
+        default="orchestrator",
+        metavar="BIN",
+        help="orchestrator binary to spawn (default: 'orchestrator' from PATH)"
+    )
     add_pipe_args(b, "work", "completions", "objects")
 
     return ap

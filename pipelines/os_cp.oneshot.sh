@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ---- optional args: set defaults up front ----
+logdir="$(pwd)/cp-logs"
+profile="DEFAULT"
+threads=8
+
+# ---- mandatory args: leave unset (empty) ----
+outfile=""
+
+usage() {
+  cat >&2 <<EOF
+Usage: ${0##*/} --name=VALUE [options]
+
+Required:
+  --outfile=VALUE     output file to send results to
+
+Optional:
+  --logdir=VALUE      log directory        (default: ${logdir})
+  --profile=VALUE     OCI profile to use   (default: ${profile})
+  --threads=VALUE     number of threads    (default: ${threads})
+  -h, --help          show this help
+EOF
+  exit 1
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --name=*)      name="${1#*=}"     ;;
+    --outfile=*)   outfile="${1#*=}"  ;;
+    --profile=*)   profile="${1#*=}"  ;;
+    --threads=*)   threads="${1#*=}"  ;;
+    --logdir=*)    logdir="${1#*=}"   ;;
+    -h|--help)     usage              ;;
+    --*)           echo "Unknown option: $1" >&2; usage ;;
+    *)             echo "Unexpected argument: $1" >&2; usage ;;
+  esac
+  shift
+done
+
+# ---- validate mandatory args ----
+[[ -n "$outfile" ]] || { echo "Error: --outfile is required" >&2; usage; }
+
+# ---- oneshot run ----
+uv run python os_cp.py bus --logdir=$logdir &
+uv run python os_cp.py worker --profile $profile --threads $threads &
+uv run python os_cp.py collect -o $outfile &
+uv run python os_cp.py coordinator

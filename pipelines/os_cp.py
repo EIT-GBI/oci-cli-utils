@@ -1126,23 +1126,39 @@ def add_pipe_args(p: argparse.ArgumentParser, *names: str) -> None:
     """
     for n in names:
         default = getattr(DEFAULT_PIPES, n)
-        p.add_argument(f"--{n}", default=default, metavar="HOST:PORT",
-                       help=f"{n} pipe orchestrator (default {default})")
-    p.add_argument("--wait", type=float, default=DEFAULT_PIPES.wait,
-                   help=f"seconds to wait for pipes to come up "
-                        f"(default {DEFAULT_PIPES.wait:g})")
+        p.add_argument(
+            f"--{n}",
+            default=default,
+            metavar="HOST:PORT",
+            help=f"{n} pipe orchestrator (default {default})"
+        )
+    p.add_argument(
+        "--wait",
+        type=float,
+        default=DEFAULT_PIPES.wait,
+        help=f"seconds to wait for pipes to come up "
+             f"(default {DEFAULT_PIPES.wait:g})"
+    )
 
 
 def add_auth_args(p: argparse.ArgumentParser) -> None:
     """Register --oci-config / --profile (the CLI edge for OciAuth)."""
-    p.add_argument("--oci-config", default="~/.oci/config", metavar="PATH",
-                   help="OCI config file (default ~/.oci/config)")
-    p.add_argument("--profile", default="DEFAULT",
-                   help="profile within the config file (default DEFAULT)")
+    p.add_argument(
+        "--oci-config",
+        default="~/.oci/config",
+        metavar="PATH",
+        help="OCI config file (default ~/.oci/config)"
+    )
+    p.add_argument(
+        "--profile",
+        default="DEFAULT",
+        help="profile within the config file (default DEFAULT)"
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Define the CLI — one subparser per role.
+    """
+    Define the CLI — one subparser per role.
 
     Flag names are stable interface; the from_args constructors are their
     only readers.
@@ -1153,45 +1169,79 @@ def build_parser() -> argparse.ArgumentParser:
     sub = ap.add_subparsers(dest="role", required=True)
 
     c = sub.add_parser("coordinator", help="feed, track, terminate")
-    c.add_argument("--input", "-i", default="-", metavar="FILE",
-                   help="JSONL copy orders (default '-' = stdin)")
-    c.add_argument("--task-timeout", type=float, default=300.0,
-                   help="seconds before a task is re-dispatched (default 300)")
+    c.add_argument(
+        "--input", "-i",
+        default="-",
+        metavar="FILE",
+        help="JSONL copy orders (default '-' = stdin)"
+    )
+    c.add_argument(
+        "--task-timeout",
+        type=float,
+        default=300.0,
+        help="seconds before a task is re-dispatched (default 300)"
+    )
     c.add_argument("--max-attempts", type=int, default=3)
-    c.add_argument("--in-flight", type=int, default=1000,
-                   help="feeder backpressure: max PENDING tasks; keep "
-                        "in_flight/throughput well below --task-timeout "
-                        "(default 1000)")
+    c.add_argument(
+        "--in-flight",
+        type=int,
+        default=1000,
+        help="feeder backpressure: max PENDING tasks; keep "
+             "in_flight/throughput well below --task-timeout (default 1000)"
+    )
     c.add_argument("--watchdog-tick", type=float, default=5.0)
     c.add_argument("--report-every", type=float, default=5.0)
-    c.add_argument("--hammer", type=float, default=60.0,
-                   help="seconds after drain before escalating to shutdown")
+    c.add_argument(
+        "--hammer",
+        type=float,
+        default=60.0,
+        help="seconds after drain before escalating to shutdown"
+    )
     add_pipe_args(c, "work", "completions", "results")
 
-    w = sub.add_parser("worker",
-                       help="consume copy orders, submit server-side copies")
-    w.add_argument("--threads", type=int, default=4,
-                   help="independent worker loops in this process (default 4)")
+    w = sub.add_parser(
+        "worker",
+        help="consume copy orders, submit server-side copies"
+    )
+    w.add_argument(
+        "--threads",
+        type=int,
+        default=4,
+        help="independent worker loops in this process (default 4)"
+    )
     add_pipe_args(w, "work", "completions", "results")
     add_auth_args(w)
 
     g = sub.add_parser("collect", help="drain the results pipe to JSONL")
-    g.add_argument("--output", "-o",
-                   help="file (default stdout, '-' works too)")
+    g.add_argument(
+        "--output", "-o",
+        help="file (default stdout, '-' works too)"
+    )
     add_pipe_args(g, "results")
 
-    b = sub.add_parser("bus", help="spawn + supervise the pipe orchestrators "
-                                   "(the message-exchange fabric)")
-    b.add_argument("--logdir", type=Path, default=Path.cwd() / "os-cp-logs",
-                   metavar="DIR",
-                   help="directory for per-orchestrator logs "
-                        "(default ./bus_logs)")
-    b.add_argument("--rust-log", default="debug",
-                   help="RUST_LOG for the spawned orchestrators "
-                        "(default debug)")
-    b.add_argument("--orchestrator", default="orchestrator", metavar="BIN",
-                   help="orchestrator binary to spawn "
-                        "(default: 'orchestrator' from PATH)")
+    b = sub.add_parser(
+        "bus", 
+        help="spawn + supervise the pipe orchestrators "
+             "(the message-exchange fabric)"
+    )
+    b.add_argument(
+        "--logdir",
+        type=Path,
+        default=Path.cwd() / "cp-logs",
+        metavar="DIR",
+        help="directory for per-orchestrator logs (default ./cp-logs)"
+    )
+    b.add_argument(
+        "--rust-log",
+        default="debug",
+        help="RUST_LOG for the spawned orchestrators (default debug)"
+    )
+    b.add_argument(
+        "--orchestrator",
+        default="orchestrator",
+        metavar="BIN",
+        help="orchestrator binary to spawn (default: 'orchestrator' from PATH)"
+    )
     add_pipe_args(b, "work", "completions", "results")
 
     return ap
