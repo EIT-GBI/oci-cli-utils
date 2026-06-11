@@ -1,6 +1,101 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# OCI OS one-shot dispatcher for Bucket LS
+
+# === framework for relative paths in bash scripts =======================
+#
+# CONTRACT: every path produced here is PHYSICAL — all symlinks resolved,
+# `..` resolved by traversal, never lexically. Containment tests elsewhere
+# must therefore only ever compare canonical-to-canonical.
+#
+# Hard deps: bash >= 3.2 (macOS default ok), POSIX dirname/basename,
+# readlink with NO flags (universal, incl. pre-12.3 macOS).
+# realpath / readlink -f are used opportunistically, never required.
+
+# --- physical directory containing a path (builtins only) ---------------
+__phys_dir() {
+    # CDPATH='' : an inherited CDPATH can redirect `cd` AND print to stdout
+    ( CDPATH='' cd -P -- "$(dirname -- "$1")" && pwd -P )
+}
+
+# --- physical directory of a script --------------------------------------
+# Call from the TOP LEVEL of the script to locate, passing its own source:
+#
+#     __PREFIX__=$(__script_dir "${BASH_SOURCE[0]:-$0}") || exit 1
+#     export __PREFIX__
+#
+# (Pass it in: inside a function, BASH_SOURCE[0] names the file where the
+# FUNCTION is defined — this library — not the caller.)
+__script_dir() {
+    local src=$1 dir hops=0
+    while [ -h "$src" ]; do                      # resolve file-level chain
+        dir=$(__phys_dir "$src")        || return 1
+        src=$(readlink -- "$src")       || return 1
+        [[ $src != /* ]] && src=$dir/$src        # relative link targets
+        if (( ++hops > 40 )); then               # realpath(3) gives ELOOP;
+            printf '__script_dir: symlink loop at %s\n' "$1" >&2
+            return 1                             # a bare loop spins forever
+        fi
+    done
+    __phys_dir "$src"
+}
+
+# --- general-purpose physical canonicalizer ------------------------------
+# For EXISTING paths (our use case: the script and resolved binaries always
+# exist; this sidesteps the -e/-E divergence between implementations).
+__realpath() {
+    [ $# -eq 1 ] || { printf 'usage: __realpath <path>\n' >&2; return 2; }
+    # Flag-less realpath = physical semantics on GNU, BSD, macOS 13+,
+    # busybox, and uutils alike. The flags are where portability dies.
+    if command -v realpath >/dev/null 2>&1; then
+        realpath -- "$1"; return
+    fi
+    if command -v grealpath >/dev/null 2>&1; then   # Homebrew coreutils
+        grealpath -- "$1"; return
+    fi
+    if readlink -f -- / >/dev/null 2>&1; then       # macOS >= 12.3
+        readlink -f -- "$1"; return
+    fi
+    # Pure-shell fallback — same physical semantics as the branches above.
+    local p=$1 dir hops=0
+    if [ -d "$p" ]; then ( CDPATH='' cd -P -- "$p" && pwd -P ); return; fi
+    while [ -h "$p" ]; do
+        dir=$(__phys_dir "$p")    || return 1
+        p=$(readlink -- "$p")     || return 1
+        [[ $p != /* ]] && p=$dir/$p
+        (( ++hops > 40 )) && { printf '__realpath: symlink loop\n' >&2; return 1; }
+    done
+    dir=$(__phys_dir "$p") || return 1
+    printf '%s/%s\n' "${dir%/}" "$(basename -- "$p")"   # %/: avoid '//x' at root
+}
+
+# --- location resolver ----------------------------------------------------
+# Sets __TARGET__ (physical path of the binary) and __MODE__ (internal if
+# it lives under $__PREFIX__, else external). Fails loudly if not found —
+# "not found" must never default to internal.
+__resolve_target() {
+    local found
+    found=$(type -P "$1") || {                  # PATH files only; immune to
+        printf 'error: %s: not found in PATH\n' "$1" >&2   # functions/aliases
+        return 127
+    }
+    __TARGET__=$(__realpath "$found") || return 1
+    # Glob prefix-match: anchored at the front, no regex metachar surprises.
+    if [[ $__TARGET__ == "$__PREFIX__"/* ]]; then
+        __MODE__=internal
+    else
+        __MODE__=external
+    fi
+}
+
+__resolve_prefix() {
+    __PREFIX__=$(__script_dir "${BASH_SOURCE[0]}") || return 1 
+}
+
+
+# === dispatcher script ==================================================
+
 # ---- optional args: set defaults up front ----
 profile="DEFAULT"
 threads=8
@@ -50,15 +145,19 @@ done
 # ---- validate mandatory args ----
 [[ -n "$name" ]] || { echo "Error: --name is required" >&2; usage; }
 
+#  ---- validate mandatory args ----
+__resolve_prefix
+__resolve_target ${__PREFIX__}/os_ls.py
+
 # ---- oneshot run ----
-uv run python os_ls.py bus &
-uv run python os_ls.py worker --profile $profile --threads $threads &
-uv run python os_ls.py collect -o $outfile &
+uv run python ${__TARGET__} bus &
+uv run python ${__TARGET__} worker --profile $profile --threads $threads &
+uv run python ${__TARGET__} collect -o $outfile &
 if [[ -n "$namespace" ]]
 then
-    uv run python os_ls.py coordinator $name \
+    uv run python ${__TARGET__} coordinator $name \
         --profile $profile --namespace $namespace --region $region
 else
-    uv run python os_ls.py coordinator $name \
+    uv run python ${__TARGET__} coordinator $name \
         --profile $profile
 fi

@@ -43,8 +43,8 @@ from collections.abc import Iterable, Iterator
 from dataclasses     import dataclass
 from typing          import Any, Literal
 
-from work import (Coordinator, Discover, Discovery, Emit, Job,
-                   Permanent, Pipeline, Pipes, Spec, Worker, run)
+from qpipe.work import (Coordinator, Discover, Discovery, Emit, Job,
+                        Permanent, Pipeline, Pipes, Spec, Worker, run)
 
 DELIMITER = "/"            # the only delimiter OCI Object Storage supports
 PAGE_LIMIT = 1000          # ListObjects hard cap per call
