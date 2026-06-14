@@ -147,7 +147,7 @@ done
 
 #  ---- validate mandatory args ----
 __resolve_prefix
-__resolve_target ${__PREFIX__}/os_ls.py
+__resolve_target ${__PREFIX__}/pipelines/os_ls.py
 
 # ---- oneshot run ----
 uv run python ${__TARGET__} bus &
